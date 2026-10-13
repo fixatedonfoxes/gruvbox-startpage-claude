@@ -32,8 +32,8 @@ body.edit #editBtn{background:var(--orange);color:var(--bg0);border-color:var(--
 form.search{margin:34px 0 30px;display:flex;border:2px solid var(--bg3);background:var(--bar);border-radius:4px}
 form.search:focus-within{border-color:var(--yellow)}
 .search span{padding:11px 0 11px 14px;color:var(--orange);font-weight:700}
-.search input{flex:1;background:none;border:0;color:var(--fg);font:inherit;font-size:16px;padding:11px 12px}
-.search input:focus-visible{outline:0}
+form.search input[type=text]{flex:1;width:auto;min-width:0;background:none;border:0;border-radius:0;color:var(--fg);font:inherit;font-size:16px;padding:11px 12px}
+form.search input[type=text]:focus-visible{outline:0}
 .panel{background:var(--panel);border:1px solid var(--bg2);border-radius:6px}
 .grid{display:grid;grid-template-columns:var(--cols,repeat(auto-fill,minmax(250px,1fr)));gap:16px;align-items:start}
 .quick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
@@ -42,6 +42,7 @@ form.search:focus-within{border-color:var(--yellow)}
 .quick .link{background:var(--panel);border:1px solid var(--bg2)}
 .fav{width:18px;height:18px;flex:none;border-radius:3px;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--bg0);overflow:hidden}
 .fav img{width:100%;height:100%;display:block}
+.fav.ok{background:none!important;color:transparent}
 .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
 .ctl{display:none;gap:2px;margin-left:auto}
 body.edit .ctl{display:flex}
@@ -130,6 +131,7 @@ details.folder.drop-a{box-shadow:4px 0 0 var(--yellow)}
   <h2 id="linkTitle">Add link</h2>
   <label>Name<input type="text" id="lName" required></label>
   <label>URL<input type="text" id="lUrl" placeholder="example.com" required></label>
+  <label>Icon (optional)<input type="text" id="lIcon" placeholder="simple-icons:github or an image URL"></label>
   <label>Place in<select id="lFolder"></select></label>
   <div class="row"><button type="button" data-close>Cancel</button><button class="pri" value="ok">Save link</button></div>
 </form></dialog>
@@ -154,6 +156,8 @@ details.folder.drop-a{box-shadow:4px 0 0 var(--yellow)}
   <label>Density<select id="lyDen"><option value="compact">Compact</option><option value="normal">Normal</option><option value="spacious">Spacious</option></select></label>
   <label>Page width<select id="lyW"><option value="760">Narrow</option><option value="1040">Normal</option><option value="1400">Wide</option><option value="2400">Full</option></select></label>
   <label>Clock<select id="lyClk"><option value="24">24-hour</option><option value="12">12-hour</option><option value="off">Hidden</option></select></label>
+  <label>Icon source<select id="iconSrc"><option value="auto">Auto (Google, DuckDuckGo, Iconify)</option><option value="iconify">Iconify brand icons (match theme)</option><option value="google">Google favicons</option><option value="ddg">DuckDuckGo favicons</option><option value="letters">Letters only</option></select></label>
+  <p class="note">Iconify guesses an icon from the site name. For a specific one, put an Iconify id such as simple-icons:gmail in the link's Icon field (browse at icon-sets.iconify.design).</p>
   <label class="chk"><input type="checkbox" id="lyIcons"> Show site icons</label>
   <div class="row l"><button type="button" id="expAll">Expand all folders</button><button type="button" id="colAll">Collapse all folders</button></div>
   <label class="chk"><input type="checkbox" id="moonOn"> Show moon phase</label>
@@ -194,9 +198,25 @@ function toast(m){const t=$('#toast');t.textContent=m;t.style.display='block';cl
 const norm=u=>/^[a-z][a-z0-9+.-]*:\/\//i.test(u)?u:'https://'+u;
 const host=u=>{try{return new URL(norm(u)).hostname}catch(e){return ''}};
 const COLORS=['--red','--green','--yellow','--blue','--purple','--aqua','--orange'];
+const SLUGS={'mail.google.com':'gmail','drive.google.com':'googledrive','docs.google.com':'googledocs','calendar.google.com':'googlecalendar','maps.google.com':'googlemaps','news.ycombinator.com':'ycombinator','twitter.com':'x','x.com':'x','lobste.rs':'lobsters','youtu.be':'youtube'};
+function iconCands(l){
+  const h=host(l.url).replace(/^www\./,''),e=encodeURIComponent(h);
+  const fg=(getComputedStyle(document.documentElement).getPropertyValue('--fg').trim()||'#ebdbb2').replace('#','%23');
+  const iconify=id=>{const [set,name]=id.split(':');return name?`https://api.iconify.design/${set}/${name}.svg?color=${fg}`:''};
+  const parts=h.split('.'),slug=SLUGS[h]||(parts[Math.max(0,parts.length-2)]||'').replace(/[^a-z0-9]/g,'');
+  const src={google:`https://www.google.com/s2/favicons?domain=${e}&sz=64`,ddg:`https://icons.duckduckgo.com/ip3/${e}.ico`,iconify:slug?iconify('simple-icons:'+slug):''};
+  const modes={auto:['google','ddg','iconify'],iconify:['iconify'],google:['google'],ddg:['ddg'],letters:[]};
+  const c=(l.icon||'').trim(),out=[];
+  if(c)out.push(/^(https?:|data:)/i.test(c)?c:iconify(c));
+  (modes[S.iconSrc]||modes.auto).forEach(k=>src[k]&&out.push(src[k]));
+  return out.filter(Boolean);
+}
+function nextIcon(i){const a=JSON.parse(i.dataset.s),n=+i.dataset.i+1;if(n<a.length){i.dataset.i=n;i.src=a[n]}else i.remove()}
+function iconOk(i){if(i.naturalWidth<=16&&/google\.com\/s2/.test(i.src))nextIcon(i);else i.parentNode.classList.add('ok')}
 function fav(l){
-  const h=host(l.url),c=COLORS[(l.name.charCodeAt(0)||0)%COLORS.length],ch=esc((l.name[0]||'?').toUpperCase());
-  return `<span class="fav" style="background:var(${c})"><img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(h)}&sz=64" alt="" onload="if(this.naturalWidth<=16)this.remove()" onerror="this.remove()">${ch}</span>`;
+  const c=COLORS[(l.name.charCodeAt(0)||0)%COLORS.length],ch=esc((l.name[0]||'?').toUpperCase()),a=iconCands(l);
+  const img=a.length?`<img src="${esc(a[0])}" data-s="${esc(JSON.stringify(a))}" data-i="0" alt="" onload="iconOk(this)" onerror="nextIcon(this)">`:'';
+  return `<span class="fav" style="background:var(${c})">${img}${ch}</span>`;
 }
 function linkHTML(l){
   return `<a class="link" href="${esc(norm(l.url))}" data-id="${l.id}"${S.edit?' draggable="true"':''}>${fav(l)}<span class="nm">${esc(l.name)}</span><span class="ctl"><button data-act="editLink" title="Edit">✎</button><button class="x" data-act="delLink" title="Remove">✕</button></span></a>`;
@@ -244,7 +264,7 @@ function fillFolders(sel){
 }
 function openLink(item,folderId){
   editing=item;$('#linkTitle').textContent=item?'Edit link':'Add link';
-  $('#lName').value=item?item.name:'';$('#lUrl').value=item?item.url:'';
+  $('#lName').value=item?item.name:'';$('#lUrl').value=item?item.url:'';$('#lIcon').value=item?item.icon||'':'';
   const p=item&&find(item.id).parent;fillFolders(folderId||(p?p.id:''));
   $('#linkDlg').showModal();$('#lName').focus();
 }
@@ -254,6 +274,7 @@ $('#linkForm').addEventListener('submit',e=>{
   const dest=$('#lFolder').value;
   let l=editing;
   if(l){const f=find(l.id);f.list.splice(f.list.indexOf(l),1);l.name=name;l.url=url}else l=L(name,url);
+  l.icon=$('#lIcon').value.trim();
   if(dest){find(dest).item.children.push(l)}else{
     const firstFolder=S.items.findIndex(i=>i.type==='folder');
     S.items.splice(firstFolder<0?S.items.length:firstFolder,0,l)}
@@ -385,7 +406,7 @@ document.addEventListener('drop',e=>{
 function applyTheme(){
   let t=S.theme||'dark-medium';
   if(t==='auto')t=matchMedia('(prefers-color-scheme: light)').matches?'light-medium':'dark-medium';
-  document.documentElement.dataset.theme=t;
+  document.documentElement.dataset.theme=t;render();
 }
 matchMedia('(prefers-color-scheme: light)').addEventListener('change',applyTheme);
 function LY(){return Object.assign({cols:'auto',density:'normal',width:'1040',icons:true,clock:'24'},S.layout||{})}
@@ -400,7 +421,7 @@ function applyLayout(){
 }
 function fillSet(){
   const l=LY();$('#theme').value=S.theme||'dark-medium';$('#lyCols').value=l.cols;$('#lyDen').value=l.density;
-  $('#lyW').value=l.width;$('#lyClk').value=l.clock;$('#lyIcons').checked=!!l.icons;$('#moonOn').checked=S.moon!==false;$('#proxy').value=S.proxy||'';
+  $('#lyW').value=l.width;$('#lyClk').value=l.clock;$('#lyIcons').checked=!!l.icons;$('#moonOn').checked=S.moon!==false;$('#proxy').value=S.proxy||'';$('#iconSrc').value=S.iconSrc||'auto';
 }
 const setLY=(k,v)=>{S.layout=Object.assign(LY(),{[k]:v});save();applyLayout()};
 $('#theme').onchange=e=>{S.theme=e.target.value;save();applyTheme()};
@@ -500,6 +521,7 @@ $('#feedForm').addEventListener('submit',e=>{
 });
 $('#moonOn').onchange=e=>{S.moon=e.target.checked;save();renderWidgets()};
 $('#proxy').onchange=e=>{S.proxy=e.target.value.trim();save()};
+$('#iconSrc').onchange=e=>{S.iconSrc=e.target.value;save();render()};
 applyTheme();applyLayout();
 applyBg();render();renderEng();renderWidgets();
 </script>
